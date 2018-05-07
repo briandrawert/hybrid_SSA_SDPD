@@ -15,8 +15,14 @@ To run the examples found in the paper, you can use our pre-configued docker con
 From the main text: 
 
 ### Validation for one-dimensional reaction-diffusion:
+```
+docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run_1d_rxn_diffusion.sh"
+```
 
 ### Validation for natural convection in a cylinder inside a square enclosure:
+```
+docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run_natural_convection.sh"
+```
 
 ### Application: micro-channel reactive flow past a cell:
 ```
