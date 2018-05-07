@@ -32,5 +32,12 @@ docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run
 From the SI:
 
 ### Validation for one-dimensional diffusion:
+```
+docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run_1d_diffusion.sh"
+```
 
 ### Validation for two-dimensional diffusion:
+```
+docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run_2d_diffusion.sh"
+```
+ls
