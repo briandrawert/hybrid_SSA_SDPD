@@ -40,4 +40,4 @@ docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run
 ```
 docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run_2d_diffusion.sh"
 ```
-ls
+
