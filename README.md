@@ -19,6 +19,9 @@ From the main text:
 ### Validation for natural convection in a cylinder inside a square enclosure:
 
 ### Application: micro-channel reactive flow past a cell:
+```
+docker run -it -v "`pwd`":/work  briandrawert/hybrid_ssa_sdpd /bin/bash -c "/run_cell_example.sh"
+```
 
 From the SI:
 
