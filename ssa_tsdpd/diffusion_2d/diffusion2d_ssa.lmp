@@ -1,0 +1,101 @@
+# Example of 2D pure diffusion (SSA vs TSDPD)
+
+
+###################################################################################
+# Lammps setup
+###################################################################################
+dimension          2
+units              si
+#                 |atom style| |num_tdpd_species| |num_ssa_species| |num_ssa_reactions| |Cd output (concentration, population)|
+atom_style         ssa_tsdpd            1                 1                 1                     concentration
+
+
+###################################################################################
+# Temporal integration setup
+###################################################################################
+variable     dt equal 1e-3             #time step
+variable     nt equal 10000            #number of time steps
+variable     freq_results equal 1000   #freq. writing results (file)
+variable     freq_screen equal 200     #freq. writing results (screen)
+
+
+
+###################################################################################
+# Domain setup
+###################################################################################
+boundary	   f f p 
+lattice		   sq 0.05
+region             box block 0 1 0 1 0 0.05 units box
+create_box         1 box
+
+###################################################################################
+# Create atoms and regions
+###################################################################################
+create_atoms	   1 box
+mass		   1 0.1
+
+variable	   h equal 0.10
+pair_style	   ssa_tsdpd/wc
+#                     | rho0 | | c0 | |  eta  | |   h   |  | cutc | |  kappa TSDPD | | kappa SSA | 
+pair_coeff	   * *  1000     0.1     1e-3      ${h}      ${h}         1e-2            1e-2
+
+set	  	   group all ssa_tsdpd/rho 1000
+set	  	   group all ssa_tsdpd/e 1.0
+
+
+
+
+###################################################################################
+# Info on screen
+###################################################################################
+thermo          ${freq_screen}
+
+
+
+###################################################################################
+# Integration of particles' position, velocity, concentration
+###################################################################################
+# Integrator    |    label    |    |  group  |  |     style (stationary or verlet)    | 
+fix              integration1         all               ssa_tsdpd/stationary
+
+
+
+
+###################################################################################
+# Forcing (tsdpd species)
+###################################################################################
+#   |          label          |   | group-ID |  |        style      |    | forcing type  |  | frequency |  |  species rank  | | geometry | | centerX | | centerY | | length-x |  | length-y |   |  value  |
+fix  forcing_upper_wall_tsdpd          all        ssa_tsdpd/forcing           tsdpd                1                 0           rectangle      0.5         0.98        0.5           0.02           2e6
+fix  forcing_lower_wall_tsdpd          all        ssa_tsdpd/forcing           tsdpd                1                 0           rectangle      0.5         0.02        0.5           0.02            0 
+fix  forcing_left_wall_tsdpd           all        ssa_tsdpd/forcing           tsdpd                1                 0           rectangle      0.0         0.5         0.02          0.5             0
+fix  forcing_right_wall_tsdpd          all        ssa_tsdpd/forcing           tsdpd                1                 0           rectangle      0.98        0.5         0.02          0.5             0
+
+
+
+###################################################################################
+# Forcing (ssa species)
+###################################################################################
+#   |          label         |   | group-ID |  |       style       |    |  forcing type  |  | frequency |  |  species rank  | | geometry | | centerX | | centerY | | length-x |  | length-y |   | value |
+fix  forcing_upper_wall_ssa          all         ssa_tsdpd/forcing             ssa                1                  0           rectangle      0.5         0.98        0.5           0.02            800
+fix  forcing_lower_wall_ssa          all         ssa_tsdpd/forcing             ssa                1                  0           rectangle      0.5         0.02        0.5           0.02            0 
+fix  forcing_left_wall_ssa           all         ssa_tsdpd/forcing             ssa                1                  0           rectangle      0.0         0.5         0.02          0.5             0
+fix  forcing_right_wall_ssa          all         ssa_tsdpd/forcing             ssa                1                  0           rectangle      0.98        0.5         0.02          0.5             0
+
+
+
+
+###################################################################################
+# Output results
+###################################################################################
+#              | label |  |group-ID|  |    style    |  |     frequency      |  |  filenames | |      variables to print         |
+dump             dmpvtk       all      ssa_tsdpd/vtk      ${freq_results}          dump*.vtk      id type vx vy vz C_[0] Cd_[0] 
+
+
+###################################################################################
+# Run simulation
+###################################################################################
+variable        skin equal 0.3*${h}
+neighbor        ${skin} bin
+timestep        ${dt}
+run             ${nt}
+

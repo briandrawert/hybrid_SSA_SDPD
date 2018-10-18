@@ -1,0 +1,12 @@
+# Settings for libraries used by specific LAMMPS packages
+# this file is auto-edited when those packages are included/excluded
+
+PKG_INC =   
+PKG_PATH =  -L../../lib/vtk 
+PKG_LIB =   
+PKG_CPP_DEPENDS = 
+PKG_LINK_DEPENDS = 
+
+PKG_SYSINC =  $(vtk_SYSINC) 
+PKG_SYSLIB =  $(vtk_SYSLIB) 
+PKG_SYSPATH = $(vtk_SYSPATH) 
