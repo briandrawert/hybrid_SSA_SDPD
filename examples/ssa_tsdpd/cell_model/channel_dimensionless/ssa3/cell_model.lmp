@@ -1,0 +1,318 @@
+# SSA + SDPD cell model 
+
+
+###################################################################################
+# Lammps setup
+###################################################################################
+dimension          2
+units              si
+variable	   fccd equal 1e9
+#                 |atom style| |num_tdpd_species| |num_ssa_species| |num_ssa_reactions|  |Cd output (concentration, population)|    |C -> Cd conversion factor |   
+atom_style         ssa_tsdpd            3                 3                 2                        concentration                           ${fccd}
+
+
+###################################################################################
+# Temporal integration setup
+###################################################################################
+variable     dt equal 1e-6               #time step
+variable     nt equal 100000000          #number of time steps
+variable     freq_results equal 10000    #freq. writing results (file)
+variable     freq_screen equal 1000      #freq. writing results (screen)
+
+
+
+###################################################################################
+# Domain setup
+###################################################################################
+boundary	   p f p 
+
+variable           Lx equal 2.1                   #length x-dir
+variable           Ly equal 1                     #length y-dir
+
+variable           radius_external equal 0.125    #external radius
+variable           radius_internal equal 0.075    #internal radius
+
+variable	   nx equal 61                   #number of fluid particles in x-dir
+variable	   deltaf equal v_Ly/v_nx         #space between fluid particles
+variable           deltac equal v_deltaf          #space between cell particles 
+
+variable           densityf equal 1               #density of fluid phase
+variable           densityc equal 1               #density of cell phase
+
+
+###################################################################################
+# Create atoms and regions
+###################################################################################
+variable           Lz equal v_deltac              #length z-dir
+
+variable	   cx equal ${Lx}/2               #x-coord cell center
+variable           cy equal ${Ly}/2               #y-coord cell center
+variable           cz equal ${Lz}/2               #z-coord cell center
+
+
+# evaluate volumes
+variable           vtot     equal v_Lx*v_Ly                                                   #actual total volume of fluid (for 2d system)
+variable           vcelltot equal 3.141592653589793*(v_radius_external)*(v_radius_external)   #volume of cell (total)
+variable           vcellint equal 3.141592653589793*(v_radius_internal)*(v_radius_internal)   #volume of cell (interior)
+variable           vcell    equal v_vcelltot-v_vcellint                                       #volume of cell wall
+variable           vfluid   equal v_vtot-v_vcelltot                                           #volume of fluid
+
+
+# create simulation box
+region             domain block 0 ${Lx} 0 ${Ly} 0 ${Lz} units box
+create_box         1 domain
+
+
+
+# create cell region
+region             cell_region   sphere ${cx} ${cy} ${cz} ${radius_external} units box
+region             cell_interior sphere ${cx} ${cy} ${cz} ${radius_internal} units box
+
+
+# create fluid region
+variable	   fluidminy equal v_deltaf
+variable	   fluidmaxy equal v_Ly-2*v_deltaf
+region             fluid_region  block 0 ${Lx} ${fluidminy} ${fluidmaxy} 0 ${Lz} units box
+
+# create wall region
+variable	   fluidminy equal v_deltaf
+variable	   fluidmaxy equal v_Ly-2*v_deltaf
+region             upperwall_region  block 0 ${Lx} 0            ${fluidminy} 0 ${Lz} units box
+region             lowerwall_region  block 0 ${Lx} ${fluidmaxy} ${Ly}        0 ${Lz} units box
+
+
+
+# create fluid particles
+lattice		   sq ${deltac}                 
+create_atoms       1 region fluid_region
+
+# create cell particles
+lattice		   sq ${deltac}                 
+delete_atoms       region cell_region
+create_atoms       1 region cell_region
+delete_atoms       region cell_interior
+group              cell region cell_region
+
+
+# create wall particles
+lattice		   sq ${deltac}                 
+create_atoms       1 region upperwall_region
+create_atoms       1 region lowerwall_region
+group              upperwall region upperwall_region
+group              lowerwall region lowerwall_region
+group              walls union upperwall lowerwall
+
+
+# create groups
+group              fluid subtract all cell walls
+
+
+# count atoms in each group
+variable           ncell equal count(cell)   #number of atoms in cell group 
+variable           nfluid equal count(fluid) #number of atoms in fluid group
+
+
+# mass of fluid particles
+variable 	   mfluid equal v_vfluid*v_densityf/v_nfluid
+
+
+# mass of cell particles
+variable           mcell equal v_vcell*v_densityc/v_ncell
+
+mass		   1 ${mfluid}
+
+print "mfluid = ${mfluid}"
+print "mcell  = ${mcell}"
+print "vcell = ${vcell}"
+print "ncell = ${ncell}"
+
+
+set	  	   group fluid ssa_tsdpd/rho ${densityf}
+set	  	   group walls ssa_tsdpd/rho ${densityf}
+set                group cell ssa_tsdpd/rho ${densityc}
+set	  	   group all ssa_tsdpd/e 1e-6
+
+
+
+
+###################################################################################
+# Evaluate dimensionless quantities
+###################################################################################
+variable         xo      equal  20e-6
+variable         vo      equal  0.25e-2
+variable         nu      equal  1e-6
+variable         kappaL  equal  347e-12
+
+variable         kRL     equal  1.0
+variable         kRLm    equal  1.0
+
+variable         CR      equal  1.0         #CR [mol/m3]
+variable         CL      equal  1.0         #CL [mol/m3]
+variable         Co      equal  v_CL        #reference C [mol/m3]
+variable         CRs     equal  v_CR/v_Co   #dimensionless CR
+variable         CLs     equal  v_CL/v_Co   #dimensionless CL
+
+variable         CdR     equal  ceil(v_fccd*v_CR/v_densityf*v_mfluid)   #CdR [molecules]
+variable         CdL     equal  ceil(v_fccd*v_CL/v_densityf*v_mfluid)   #CdL [molecules]
+
+
+print "CRs     =  ${CRs}"
+print "CLs     =  ${CLs}"
+print "Co      =  ${Co}"
+print "CdR     =  ${CdR}"
+print "CdL     =  ${CdL}"
+
+variable         Re       equal  v_xo*v_vo/v_nu
+variable         Pe       equal  v_xo*v_vo/v_kappaL
+variable         DaI      equal  v_xo*v_xo*v_kRL*v_Co/v_kappaL
+variable         DaII     equal  v_xo*v_xo*v_kRLm/v_kappaL
+
+variable         Reinv    equal  1./v_Re
+variable         Peinv    equal  1./v_Pe
+
+variable         DaIPe    equal  v_DaI*v_Peinv
+variable         DaIIPe   equal  v_DaII*v_Peinv
+
+variable         DaIdPe   equal  v_DaIPe/v_fccd
+variable         DaIIdPe  equal  v_DaIIPe
+
+
+print "Re       =  ${Re}"
+print "Pe       =  ${Pe}"
+print "DaI      =  ${DaI}"
+print "DaII     =  ${DaII}"
+print "Reinv    =  ${Reinv}"
+print "Peinv    =  ${Peinv}"
+print "DaI/Pe   =  ${DaIPe}"
+print "DaII/Pe  =  ${DaIIPe}"
+print "DaId/Pe  =  ${DaIdPe}"
+print "DaIId/Pe =  ${DaIIdPe}"
+
+
+
+
+
+###################################################################################
+# Set interations
+###################################################################################
+variable	   h equal "2.4*v_deltaf"
+
+pair_style	   ssa_tsdpd/wt
+#                     |     rho0    |    |  c0  |  |   eta   |  |   h   |  |   cutc   | | kappa[0] | | kappa[1] | | kappa[2] |  | kappa_ssa[0] | | kappa_ssa[1] | | kappa_ssa[2] | #  | modified_mass_flag |  | type_modified_mass |   |  modified_mass  |
+pair_coeff      1 1     ${densityf}         1e3     ${Reinv}      ${h}        ${h}       ${Peinv}        0            0            ${Peinv}            0                0         #             yes                        2                  ${mcell}
+
+
+###################################################################################
+# Define sphere region
+###################################################################################
+velocity        cell set 0.0 0.0 0.0                                            #set velocity of particles in group sphere
+#fix             cellwall fluid indent 1e8 sphere ${cx} ${cy} ${cz} ${radius_external} units box  #use indent force in group sphere (particles do not move)
+
+
+
+###################################################################################
+# Initial velocity and concentration fields
+###################################################################################
+# Velocity
+variable        U0 equal  1.0                       #(label, initial velocity)
+velocity        fluid set ${U0} 0.0 0.0 units box   #(group-ID, set vx vy vz)
+
+
+
+###################################################################################
+# Info on screen
+###################################################################################
+thermo          ${freq_screen}
+
+
+###################################################################################
+# Enforce boundary conditions
+###################################################################################
+variable yminwall equal v_deltaf
+variable ymaxwall equal v_Ly-2*v_deltaf
+#   | label |   | group-ID | |        style      |  | rank coordinate (x=0, y=1, z=2) |  | coord_min | | coord_max |
+fix    BCy           fluid       ssa_tsdpd/reflect                      1                 ${yminwall}   ${ymaxwall}
+
+
+###################################################################################
+# Integration of particles' position, velocity, concentration
+###################################################################################
+# Integrator    |    label    |    |  group  |  |     style (stationary or verlet)    | 
+fix              integration1         fluid             ssa_tsdpd/verlet
+fix              integration2         cell              ssa_tsdpd/stationary
+fix              integration3         walls             ssa_tsdpd/stationary
+
+
+#compute density
+compute         rhoatom all ssa_tsdpd/rho/atom
+
+
+
+###################################################################################
+# Buffer zones
+###################################################################################
+#   |       label      |   | group-ID |  |        style       |    | forcing type  |  | buffer direction |   | frequency |  |  rank  |  |  centerX  | | centerY | | length-x |  | length-y |   |  value  |
+fix    buffer_vx              fluid         ssa_tsdpd/buffer           velocity                x                   1             0            0.05        0.49         0.05          0.45         ${U0}
+fix    buffer_vy              fluid         ssa_tsdpd/buffer           velocity                x                   1             1            0.05        0.49         0.05          0.45         0.0
+fix    buffer_C0_lower        fluid         ssa_tsdpd/buffer           tsdpd                   x                   1             0            0.05        0.25         0.05          0.25         0.0 
+fix    buffer_C0_upper        fluid         ssa_tsdpd/buffer           tsdpd                   x                   1             0            0.05        0.75         0.05          0.25         ${CLs} 
+fix    buffer_Cd0_lower       fluid         ssa_tsdpd/buffer           ssa                     x                   1             0            0.05        0.25         0.05          0.25         0.0
+fix    buffer_Cd0_upper       fluid         ssa_tsdpd/buffer           ssa                     x                   1             0            0.05        0.75         0.05          0.25         ${CdL} 
+
+
+#   |          label         |   | group-ID |  |        style       |    | buffer type  |  | frequency |  |  species rank  | | geometry | |  centerX  | | centerY | | length-x |  | length-y |   |  value  |
+#fix    forcing_C0_lower             fluid        ssa_tsdpd/forcing           tsdpd              1                0            rectangle       0.05          0.25        0.05           0.25         0.0
+#fix    forcing_C0_upper             fluid        ssa_tsdpd/forcing           tsdpd              1                0            rectangle       0.05          0.75        0.05           0.25         ${CLs}
+#fix    forcing_Cd0_lower            fluid        ssa_tsdpd/forcing           ssa                1                0            rectangle       0.05          0.25        0.05           0.25         0
+#fix    forcing_Cd0_upper            fluid        ssa_tsdpd/forcing           ssa                1                0            rectangle       0.05          0.75        0.05           0.25         ${CdL}
+
+
+###################################################################################
+# Forcing (cell region)
+###################################################################################
+#   |          label         |   | group-ID |  |        style       |    | buffer type  |  | frequency |  |  species rank  | | geometry | |  centerX  | | centerY | | length-x |  | length-y |   |  value  |
+fix    forcing_cell_tsdpd            cell         ssa_tsdpd/forcing           tsdpd              1                1          rectangle       ${cx}        ${cy}        0.2            0.2          ${CRs}
+fix    forcing_cell_ssa              cell         ssa_tsdpd/forcing           ssa                1                1          rectangle       ${cx}        ${cy}        0.2            0.2          ${CdR}
+
+
+###################################################################################
+# Reactions (tsdpd species)
+###################################################################################
+#Reaction C_[0] + C_[1] -> C_[2]
+#    |    label    | | group | |              style             |                | rxn_rate | | #reactants | | reactant1 | | reactant2 | | #products | | product1 |
+fix   rxn1_tsdpd       cell      ssa_tsdpd/chem_rxn_mass_action                    ${DaIPe}         2             0             1             1            2
+
+#Reaction C_[2] -> C_[0] + C_[1]
+#    |    label    | | group | |              style             |                | rxn_rate | | #reactants | | reactant1 |  | #products | | product1 |  | product2 | 
+fix   rxn2_tsdpd        cell      ssa_tsdpd/chem_rxn_mass_action                   ${DaIIPe}        1             2             2             0            1
+
+
+###################################################################################
+# Reactions (ssa species)
+###################################################################################
+#Reaction Cd_[0] + Cd_[1] -> Cd_[2]
+#    |    label    | | group | |              style             |  | rxn_rank |   |  rxn_rate  | | #reactants | | reactant1 | | reactant2 | | #products | | product1 |
+fix   rxn1_ssa         cell      ssa_tsdpd/ssa_rxn_mass_action          0            ${DaIdPe}          2             0             1             1            2
+
+#Reaction Cd_[2] -> Cd_[0] + Cd_[1]
+#    |    label    | | group | |              style             |  | rxn_rank |   |  rxn_rate  | | #reactants | | reactant1 |  | #products | | product1 |  | product2 | 
+fix   rxn2_ssa         cell      ssa_tsdpd/ssa_rxn_mass_action          1            ${DaIIdPe}         1             2             2             0            1
+
+
+
+###################################################################################
+# Output results
+###################################################################################
+#              | label |  |group-ID|  |    style    |  |     frequency      |  |  filenames | |      variables to crint         |
+dump             dmpvtk       all      ssa_tsdpd/vtk      ${freq_results}          dump*.vtk      id type vx vy vz C_[0] Cd_[0] C_[1] Cd_[1] C_[2] Cd_[2] c_rhoatom
+dump             dmpvtk2      cell     ssa_tsdpd/vtk      ${freq_results}          dumpcell*.vtk      id type vx vy vz C_[0] Cd_[0] C_[1] Cd_[1] C_[2] Cd_[2] c_rhoatom
+
+
+###################################################################################
+# Run simulation
+###################################################################################
+variable        skin equal 0.3*${h}
+neighbor        ${skin} bin
+timestep        ${dt}
+run             ${nt}
+

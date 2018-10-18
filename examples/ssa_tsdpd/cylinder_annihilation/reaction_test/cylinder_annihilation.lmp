@@ -1,0 +1,213 @@
+# SDPD cylinder annihilation 
+
+###################################################################################
+# Lammps setup
+###################################################################################
+dimension      2     #enforces 2D simulation
+units          si
+               
+#              |atom style| |num_tdpd_species| |num_ssa_species| |num_ssa_reactions| |Cd output (concentration, population)|  | Cd->C conversion | 
+atom_style      ssa_tsdpd          3                  3                  1                     concentration                          1e8
+
+
+###################################################################################
+# Temporal integration setup
+###################################################################################
+variable     dt equal 1e-1                 #time step
+variable     nt equal 500000               #number of time steps
+variable     freq_lagrangian equal 1000    #freq. writing results (file)
+variable     freq_screen equal 1000        #freq. writing results (screen)
+
+
+###################################################################################
+# Domain setup
+###################################################################################
+boundary           f f p
+
+variable           Lxint equal 1.
+variable           Lyint equal 0.2
+
+variable           Nxint equal 55
+variable           Nyint equal 11
+
+
+variable           deltax equal ${Lxint}/${Nxint}
+variable           deltay equal ${Lyint}/${Nyint}
+
+variable           Nxwall equal 6
+variable           Nywall equal 0
+
+variable           Lx equal ${Lxint}+${Nxwall}*2*${deltax}
+variable           Ly equal ${Lyint}+${Nywall}*2*${deltay}
+variable           Lz equal v_deltax
+
+
+variable           Npx equal ${Nxint}+2*${Nxwall}
+variable           Npy equal ${Nyint}
+variable           Np equal  ${Npx}*${Npy}
+
+variable           xmin equal -v_Lx/2
+variable           xmax equal v_Lx/2
+variable           ymin equal -v_Ly/2
+variable           ymax equal v_Ly/2
+variable           zmin equal 0
+variable           zmax equal v_Lz
+
+
+variable           xminint equal -v_Lxint/2
+variable           xmaxint equal v_Lxint/2
+variable           yminint equal -v_Lyint/2
+variable           ymaxint equal v_Lyint/2
+variable           zminint equal 0
+variable           zmaxint equal ${Lz}
+
+variable           vtot equal v_Lx*v_Ly
+variable           mtot equal v_vtot
+variable           mi equal v_vtot*1000./v_Np
+
+lattice            sq ${deltax}
+
+
+print "mass per particle = ${mi}"
+
+
+
+###################################################################################
+# Create atoms and regions
+###################################################################################
+# create simulation box
+region        domain block ${xmin} ${xmax} ${ymin} ${ymax} ${zmin} ${zmax} units box
+create_box    2 domain  #(Number of types ; region) 
+
+# create fluid particles
+region        fluid_region block ${xminint} ${xmaxint} ${yminint} ${ymaxint} EDGE EDGE units box
+create_atoms  1 region fluid_region
+group         fluid region fluid_region
+
+
+# create walls
+region        left_wall_region block ${xmin} ${xminint} EDGE EDGE EDGE EDGE units box
+create_atoms  2 region left_wall_region
+group         left_wall region left_wall_region
+
+region        right_wall_region block ${xmaxint} ${xmax} EDGE EDGE EDGE EDGE units box
+create_atoms  2 region right_wall_region
+group         right_wall region right_wall_region
+
+
+# set mass
+mass * ${mi}
+
+
+# Set initial values
+set		group all ssa_tsdpd/rho 1000.0
+set		group all ssa_tsdpd/e 1.0
+
+
+# The dynamic viscosity is set to 1.0e-3 Pa s, corresponding to a kinematic viscosity of 1.0e-6 m^2/s
+variable	h equal "3*v_deltax"
+pair_style      ssa_tsdpd/wt
+variable        Ds equal 1e-4
+#                    | rho0 | |  c0  | |  eta  | |   h   |  | cutc | | kappa[0] | | kappa[1] | | kappa[2] |   | kappa_ssa[0] |   | kappa_ssa[1] |  | kappa_ssa[2] |  
+pair_coeff       * *   1000      0.1     1.0e-3     ${h}      ${h}       ${Ds}        ${Ds}        ${Ds}            ${Ds}             ${Ds}             ${Ds}       
+
+
+
+###################################################################################
+# Initial concentration fields
+###################################################################################
+# Concentration (note: initializing concentrations as 0 is optional; it will be 0 by default)
+               #| group | |  group-ID  | |     style    | | species rank| | value | 
+#set	 	  group     left_wall      ssa_tsdpd/C         0           30250000
+#set		  group     left_wall      ssa_tsdpd/Cd        0           10000
+#set 		  group     right_wall     ssa_tsdpd/C         1           30250000
+#set		  group     right_wall     ssa_tsdpd/Cd        1           10000
+
+variable         c0 equal 1
+variable         c1 equal 1
+variable         cd0 equal ceil(1e8*v_c0*v_mi/1000.)
+variable         cd1 equal ceil(1e8*v_c1*v_mi/1000.)
+
+print "cd0 = ${cd0}"
+print "cd1 = ${cd1}"
+print "c0  = ${c0}"
+print "c1  = ${c1}"
+
+set	 	  group     left_wall       ssa_tsdpd/C         0           ${c0}
+set		  group     left_wall       ssa_tsdpd/Cd        0           ${cd0}
+set 		  group     right_wall      ssa_tsdpd/C         1           ${c1}
+set		  group     right_wall      ssa_tsdpd/Cd        1           ${cd1}
+
+
+###################################################################################
+# Info on screen
+###################################################################################
+thermo          ${freq_screen} 
+
+
+###################################################################################
+# Integration of particles' position, velocity, concentration
+###################################################################################
+# Integrator    |    label    |    |  group  |  |   style (stationary or verlet)   | 
+fix  		 integration1         fluid             ssa_tsdpd/stationary   
+
+#compute density
+compute         rhoatom all ssa_tsdpd/rho/atom
+
+
+###################################################################################
+# Forcing (tsdpd species)
+###################################################################################
+#   |  label  |   | group-ID |  |       style      |    | forcing type  |  | frequency |  |  species rank  | | geometry | | centerX | | centerY | | length-x |  | length-y |   |  value  |
+#fix  forcing1       left_wall    ssa_tsdpd/forcing          tsdpd               1                 0           rectangle        0          0.1         0.1          0.2           4225000
+#fix  forcing2       right_wall   ssa_tsdpd/forcing          tsdpd               1                 1           rectangle        1.0        0.1         0.1          0.2           4225000
+
+
+###################################################################################
+# Forcing (ssa species)
+###################################################################################
+#   |  label  |   | group-ID |  |       style      |    | forcing type  |  | frequency |  |  species rank  | | geometry | | centerX | | centerY | | length-x |  | length-y |   | value |
+#fix   forcing3      left_wall     ssa_tsdpd/forcing           ssa               1                 0            rectangle       0          0.1          0.1          0.2          1000
+#fix   forcing4      right_wall    ssa_tsdpd/forcing           ssa               1                 1            rectangle       1.0        0.1          0.1          0.2          1000 
+
+
+###################################################################################
+# Reactions (tsdpd species)
+###################################################################################
+#Reaction C_[0] + C_[1] -> C_[2]
+#                                           | rxn_rate | | #reactants | | reactant1 | | reactant2 | | #products | | product1 |
+fix rxn1 all ssa_tsdpd/chem_rxn_mass_action     0.1              2             0              1             1            2
+
+
+###################################################################################
+# Reactions (ssa species)
+###################################################################################
+
+#Reaction Cd_[0] + Cd_[1] -> Cd_[2]
+#                                                           |rnx_rank|    | rxn_rate |  | #reactants |  | reactant1 | | reactant2 | | #products | | product1 |
+fix rxn_ssa_1  all        ssa_tsdpd/ssa_rxn_mass_action          0             1e-9            2              0            1             1              2
+
+
+###################################################################################
+# Enforce boundary conditions
+###################################################################################
+#   | label |   | group-ID | |        style      |  | species rank coordinate (x=0, y=1, z=2)| | coord_min | | coord_max |
+#fix    BCy           all       ssa_tsdpd/reflect                       1                          ${ymin}       ${ymax}
+
+
+###################################################################################
+# Output results
+###################################################################################
+#              | label |  |group-ID|  |    style    |  |     frequency      |  |  filenames | |                 variables to print                    |
+dump  		 dmpvtk       all      ssa_tsdpd/vtk     ${freq_lagrangian}       dump*.vtk     id type vx vy vz C_[0] C_[1] Cd_[0] Cd_[1] C_[2] Cd_[2] c_rhoatom 
+
+
+###################################################################################
+# Run simulation
+###################################################################################
+variable	skin equal 0.3*${h}
+neighbor     	${skin} bin #creates neighbor list
+timestep     	${dt}
+run  		${nt}
+
+
